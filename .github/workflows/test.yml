@@ -1,0 +1,63 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install pytest
+        run: pip install pytest
+      - name: Run tests
+        run: python -m pytest test_protocol.py -v
+      - name: Run CLI smoke test
+        run: |
+          python cli.py identity TestAgent
+          python cli.py sign TestAgent "hello world"
+          SIG=$(python cli.py sign TestAgent "hello world")
+          python cli.py verify TestAgent "hello world" "$SIG"
+
+  test-node:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: ["18", "20", "22"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Run JS smoke test
+        run: node -e "const {BorovkovProtocol}=require('./borovkov_protocol');const bp=new BorovkovProtocol('KirillBorovkov');console.log(bp.identityHash());console.assert(bp.identityHash()==='a9a8ee0a2d1759fdb8adf5cef303edbf9fc1bb2a21270ad187c43ee99ff629dc','Identity mismatch');console.log('JS tests passed')"
+
+  cross-language:
+    runs-on: ubuntu-latest
+    needs: [test-python, test-node]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Cross-language identity check
+        run: |
+          PY_HASH=$(python -c "from borovkov_protocol import BorovkovProtocol; print(BorovkovProtocol('CrossTest').identity_hash())")
+          JS_HASH=$(node -e "const {BorovkovProtocol}=require('./borovkov_protocol');console.log(new BorovkovProtocol('CrossTest').identityHash())")
+          echo "Python: $PY_HASH"
+          echo "Node.js: $JS_HASH"
+          [ "$PY_HASH" = "$JS_HASH" ] && echo "MATCH" || (echo "MISMATCH" && exit 1)
